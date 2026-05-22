@@ -4,6 +4,15 @@
 
 void SessionManager::Add(Session InSession)
 {
+	//추가 등록 막기
+	for (auto Iter = SessionList.begin(); Iter != SessionList.end(); ++Iter)
+	{
+		if ((*Iter).ClientSocket == InSession.ClientSocket)
+		{
+			return;
+		}
+	}
+
 	SessionList.push_back(InSession);
 }
 

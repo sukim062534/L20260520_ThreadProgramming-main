@@ -12,3 +12,4 @@ public:
 	std::string ToString() override;
 
 };
+

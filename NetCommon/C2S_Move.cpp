@@ -6,7 +6,7 @@ void C2S_Move::Parse(std::string InString)
     JSONDocument.Parse(InString.c_str());
 
     ClientSocket = JSONDocument["ClientSocket"].GetInt();
-    Direction = JSONDocument["Direction"].GetString();
+    Direction = JSONDocument["Direction"].GetInt();
 }
 
 std::string C2S_Move::ToString()
@@ -19,5 +19,5 @@ std::string C2S_Move::ToString()
     rapidjson::Writer<rapidjson::StringBuffer> Writer(Buffer);
     JSONDocument.Accept(Writer);
 
-    return std::string();
+    return Buffer.GetString();
 }

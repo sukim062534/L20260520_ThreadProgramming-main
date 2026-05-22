@@ -3,7 +3,6 @@
 class S2C_Move : public IPacket
 {
 public:
-
 	SOCKET ClientSocket;
 	int X;
 	int Y;

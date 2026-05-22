@@ -21,21 +21,9 @@ int SendAll(SOCKET ReceiverSocket, const char* Data, int Size)
 	return WantSendDataSize;
 }
 
-void DisconnectSocket(SOCKET DisconnectedSocket, fd_set* Sockets)
-{
-	SOCKADDR_IN ClosedSockAddr;
-	memset(&ClosedSockAddr, 0, sizeof(ClosedSockAddr));
-	int ClosedSockAddrLength = sizeof(ClosedSockAddr);
-
-	SOCKET ClosedSocket = DisconnectedSocket;
-	getpeername(ClosedSocket, (SOCKADDR*)&ClosedSockAddr, &ClosedSockAddrLength);
-	FD_CLR(DisconnectedSocket, &Sockets);
-	closesocket(ClosedSocket);
-}
-
-
 int RecvAll(SOCKET ReceiverSocket, char* OutData, int Size)
 {
 	int RecvBytes = recv(ReceiverSocket, OutData, Size, MSG_WAITALL);
 	return RecvBytes;
 }
+

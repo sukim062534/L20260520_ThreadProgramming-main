@@ -10,6 +10,7 @@ struct Session
 
 	int X;
 	int Y;
+	char Shape = ' ';
 
 	bool operator==(const Session& RHS)
 	{
@@ -30,6 +31,8 @@ public:
 	Session* GetSession(const Session& InSession);
 
 
-	//protected:
+//protected:
 	std::vector<Session> SessionList;
 };
+
+
