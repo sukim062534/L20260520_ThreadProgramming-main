@@ -9,12 +9,13 @@
 #include <iostream>
 #include <process.h>
 #include <conio.h>
-
-
+#include "SDL.h"
 
 
 #pragma comment(lib, "ws2_32")
 #pragma comment(lib, "NetCommon")
+#pragma comment(lib, "SDL2")
+#pragma comment(lib, "SDL2main")
 
 
 using namespace std;
@@ -25,8 +26,59 @@ char RecvBuffer[1024] = { 0, };
 bool IsRecvThreadRunning = true;
 bool IsSendThreadRunning = true;
 
+//ActorList
 SessionManager MySessionManager;
 SOCKET MyClientID;
+
+SDL_Window* MyWindow = nullptr;
+SDL_Renderer* MyRender = nullptr;
+bool MyIsRunning = true;
+
+void Render()
+{
+
+	SDL_SetRenderDrawColor(MyRender, 0, 0, 0, 255); // ¹ÙÅÁ»ö: Èò»ö
+	SDL_RenderClear(MyRender);
+
+
+	for (auto Player : MySessionManager.SessionList)
+	{
+		SDL_Rect playerRect;
+		
+		playerRect.x = Player.X * 30;
+		playerRect.y = Player.Y * 30;
+		playerRect.w = 25; 
+		playerRect.h = 25; 
+
+		
+		if (Player.ClientSocket == MyClientID)
+		{
+			
+			SDL_SetRenderDrawColor(MyRender, 255, 0, 0, 255);
+		}
+		else
+		{
+			SDL_SetRenderDrawColor(MyRender, 255, 255, 0, 255); 
+		}
+
+		
+		SDL_RenderFillRect(MyRender, &playerRect);
+	}
+
+	
+	SDL_RenderPresent(MyRender);
+	system("cls");
+
+	for (auto Player : MySessionManager.SessionList)
+	{
+		COORD Where;
+		Where.X = Player.X;
+		Where.Y = Player.Y;
+		SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), Where);
+		std::cout << (char)Player.Shape << endl;
+	}
+}
+
 
 void ProcessPacket(SOCKET ProcessSocket, const char* InBuffer, const Header& InHeader)
 {
@@ -36,7 +88,7 @@ void ProcessPacket(SOCKET ProcessSocket, const char* InBuffer, const Header& InH
 		{
 			S2C_Login LoginPacket;
 			LoginPacket.Parse(InBuffer);
-			cout << LoginPacket.ToString() << endl;
+			//std::cout << LoginPacket.ToString() << endl;
 			MyClientID = LoginPacket.ClientSocketID;
 		}
 		break;
@@ -44,7 +96,7 @@ void ProcessPacket(SOCKET ProcessSocket, const char* InBuffer, const Header& InH
 		{
 			S2C_Spawn SpawnData;
 			SpawnData.Parse(InBuffer);
-			cout << SpawnData.ToString() << endl;
+			//std::cout << SpawnData.ToString() << endl;
 
 			Session InSession;
 			InSession.ClientSocket = SpawnData.ClientSocket;
@@ -53,6 +105,7 @@ void ProcessPacket(SOCKET ProcessSocket, const char* InBuffer, const Header& InH
 			InSession.Y = SpawnData.Y;
 
 			MySessionManager.Add(InSession);
+			Render();
 		}
 		break;
 	case EPacketType::S2C_Move:
@@ -63,7 +116,8 @@ void ProcessPacket(SOCKET ProcessSocket, const char* InBuffer, const Header& InH
 			FindSession->X = MoveData.X;
 			FindSession->Y = MoveData.Y;
 
-			std::cout << MoveData.ToString() << endl;
+			//std::cout << MoveData.ToString() << endl;
+			Render();
 		}
 		break;
 	case EPacketType::S2C_Destroy:
@@ -73,9 +127,10 @@ void ProcessPacket(SOCKET ProcessSocket, const char* InBuffer, const Header& InH
 
 			Session* FindSession = MySessionManager.GetSession(DestroyPacket.ClientSocket);
 
-			std::cout << "Quit : " << FindSession->ClientSocket << endl;
+			//std::cout << "Quit : " << FindSession->ClientSocket << endl;
 
 			MySessionManager.Delete(*FindSession);
+			Render();
 
 		}
 		break;
@@ -97,7 +152,7 @@ unsigned WINAPI RecvThread(void* Argument)
 		int RecvBytes = RecvAll(ServerSocket, (char*)&DataHeader, HeaderSize);
 		if (RecvBytes <= 0)
 		{
-			cout << "header recv fail " << endl;
+			std::cout << "header recv fail " << endl;
 			break;
 		}
 
@@ -108,7 +163,7 @@ unsigned WINAPI RecvThread(void* Argument)
 		RecvBytes = RecvAll(ServerSocket, RecvBuffer, DataHeader.PacketSize);
 		if (RecvBytes <= 0)
 		{
-			cout << "Data recv fail " << endl;
+			std::cout << "Data recv fail " << endl;
 			break;
 		}
 
@@ -152,14 +207,14 @@ unsigned WINAPI SendThread(void* Argument)
 		int SentBytes = SendAll(ServerSocket, (char*)&DataHeader, HeaderSize);
 		if (SentBytes <= 0)
 		{
-			cout << "header send fail." << endl;
+			std::cout << "header send fail." << endl;
 		}
 
 		//Data
 		SentBytes = SendAll(ServerSocket, MoveData.ToString().c_str(), (int)(MoveData.ToString().length()));
 		if (SentBytes <= 0)
 		{
-			cout << "Data send fail." << endl;
+			std::cout << "Data send fail." << endl;
 		}
 	
 
@@ -168,9 +223,23 @@ unsigned WINAPI SendThread(void* Argument)
 	return 0;
 }
 
-int main()
+int SDL_main(int Argc, char* Argv[])
 {
-	cout << "client " << endl;
+
+
+	std::cout << "client " << endl;
+
+	if (SDL_Init(SDL_INIT_VIDEO) < 0)
+	{
+		std::cout << "SDL Init Error: " << SDL_GetError() << endl;
+		return -1;
+	}
+
+	SDL_Window* MyWindow = SDL_CreateWindow("Hello", 100, 100, 640, 480, SDL_WINDOW_SHOWN);
+	if (!MyWindow) return -1;
+
+	MyRender = SDL_CreateRenderer(MyWindow, -1, SDL_RENDERER_ACCELERATED);
+	if (!MyRender) return -1;
 
 	WSAData wsaData;
 
@@ -186,11 +255,11 @@ int main()
 
 	connect(ServerSocket, (SOCKADDR*)&ServerSockAddr, sizeof(ServerSockAddr));
 
-	cout << "client connect" << endl;
+	std::cout << "client connect" << endl;
 
 	C2S_Login LoginData;
-	LoginData.UserID = "aaa";
-	LoginData.HashKey = "1asdfegsefd";
+	LoginData.UserID = "aaaa";
+	LoginData.HashKey = "1as3f356dsd6gyhg";
 
 	Header LoginHeader;
 	LoginHeader.MakeHeader(static_cast<unsigned short>(LoginData.ToString().length()), EPacketType::C2S_Login);
@@ -198,12 +267,12 @@ int main()
 	//Login ¿äÃ»
 	if (SendAll(ServerSocket, (char*)&LoginHeader, HeaderSize) <= 0)
 	{
-		cout << "login header Error" << endl;
+		std::cout << "login header Error" << endl;
 	}
 
 	if ( SendAll(ServerSocket, LoginData.ToString().c_str(), (int)LoginData.ToString().length()) <= 0)
 	{
-		cout << "login data Error" << endl;
+		std::cout << "login data Error" << endl;
 	}
 
 	HANDLE ThreadHandles[2] = { 0, };
@@ -215,7 +284,20 @@ int main()
 	//ResumeThread(ThreadHandles[1]);
 	//SuspendThread(ThreadHandles[0]);
 	//SuspendThread(ThreadHandles[1]);
-
+	SDL_Event Event;
+	while (MyIsRunning)
+	{
+		while (SDL_PollEvent(&Event))
+		{
+			if (Event.type == SDL_QUIT)
+			{
+				MyIsRunning = false;
+				IsRecvThreadRunning = false;
+				IsSendThreadRunning = false;
+			}
+		}
+		SDL_Delay(16); // ¾à 60fps
+	}
 
 	//blocking
 	WaitForMultipleObjects(2, ThreadHandles, FALSE, INFINITE);
@@ -229,6 +311,9 @@ int main()
 	IsSendThreadRunning = false;
 	IsRecvThreadRunning = false;
 
+	SDL_DestroyRenderer(MyRender);
+	SDL_DestroyWindow(MyWindow);
+	SDL_Quit();
 
 	CloseHandle(ThreadHandles[0]);
 	CloseHandle(ThreadHandles[1]);
