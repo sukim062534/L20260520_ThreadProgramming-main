@@ -308,8 +308,7 @@ int SDL_main(int Argc, char* Argv[])
 
 	//TerminateThread(ThreadHandles[0], 0);
 	//TerminateThread(ThreadHandles[1], 0);
-	IsSendThreadRunning = false;
-	IsRecvThreadRunning = false;
+
 
 	SDL_DestroyRenderer(MyRender);
 	SDL_DestroyWindow(MyWindow);
