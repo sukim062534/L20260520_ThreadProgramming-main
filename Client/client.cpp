@@ -1,10 +1,7 @@
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
 
-
-#include "ChatPacket.h"
 #include "NetUtil.h"
 
-#include <winsock2.h>
 #include <Windows.h>
 #include <iostream>
 #include <process.h>
@@ -21,8 +18,7 @@
 
 using namespace std;
 
-char SendBuffer[1024] = { 0, };
-char RecvBuffer[1024] = { 0, };
+char RecvBuffer[65536] = { 0, };
 
 bool IsRecvThreadRunning = true;
 bool IsSendThreadRunning = true;
@@ -40,7 +36,7 @@ std::mutex KeyBufferLock;
 
 
 void Render();
-void ProcessPacket(SOCKET ProcessSocket, const char* InBuffer, const Header& InHeader);
+void ProcessPacket(SOCKET ProcessSocket, const char* InBuffer);
 unsigned WINAPI RecvThread(void* Argument);
 unsigned WINAPI SendThread(void* Argument);
 
@@ -70,7 +66,7 @@ int SDL_main(int Argc, char* Argv[])
 	SOCKADDR_IN ServerSockAddr;
 	memset(&ServerSockAddr, 0, sizeof(ServerSockAddr));
 	ServerSockAddr.sin_family = AF_INET;
-	ServerSockAddr.sin_addr.s_addr = inet_addr("192.168.0.95");
+	ServerSockAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
 	ServerSockAddr.sin_port = htons(35000);
 
 	connect(ServerSocket, (SOCKADDR*)&ServerSockAddr, sizeof(ServerSockAddr));
@@ -210,6 +206,7 @@ void ProcessPacket(SOCKET ProcessSocket, const char* InBuffer)
 {
 	auto UserPacketData = UserPacket::GetPacketData(InBuffer);
 
+	//std::cout << EnumNamePacketType(UserPacketData->data_type()) << std::endl;
 
 	switch (UserPacketData->data_type())
 	{
@@ -239,9 +236,10 @@ void ProcessPacket(SOCKET ProcessSocket, const char* InBuffer)
 	break;
 	case UserPacket::PacketType_S2C_Move:
 	{
-		auto MoveData = UserPacketData->data_as_S2C_Spawn();
+		auto MoveData = UserPacketData->data_as_S2C_Move();
 
-		Session* FindSession = MySessionManager.GetSession(MoveData->client_socket_id());
+		SOCKET SocketID = MoveData->client_socket_id();
+		Session* FindSession = MySessionManager.GetSession(SocketID);
 		FindSession->X = MoveData->position()->x();
 		FindSession->Y = MoveData->position()->y();
 	}
@@ -250,7 +248,7 @@ void ProcessPacket(SOCKET ProcessSocket, const char* InBuffer)
 	{
 		auto DestroyPacket = UserPacketData->data_as_S2C_Destroy();
 
-		Session* FindSession = MySessionManager.GetSession(DestroyPacket->client_socket_id());
+		Session* FindSession = MySessionManager.GetSession((SOCKET)DestroyPacket->client_socket_id());
 		{
 			lock_guard<std::mutex> lock(SessionLock);
 			MySessionManager.Delete(*FindSession);
@@ -268,6 +266,7 @@ unsigned WINAPI RecvThread(void* Argument)
 
 	while (IsRecvThreadRunning)
 	{
+		memset(RecvBuffer, 0, sizeof(RecvBuffer));
 		int RecvBytes = RecvAll(ServerSocket, RecvBuffer);
 		if (RecvBytes <= 0)
 		{

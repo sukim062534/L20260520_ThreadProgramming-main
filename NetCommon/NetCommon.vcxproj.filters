@@ -21,34 +21,10 @@
     <ClInclude Include="pch.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="Packet.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="ChatPacket.h">
+    <ClInclude Include="SessionManager.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="NetUtil.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="C2S_Login.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="S2C_Login.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="S2C_Spawn.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="S2C_Destroy.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="C2S_Move.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="S2C_Move.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="SessionManager.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
@@ -59,31 +35,7 @@
     <ClCompile Include="pch.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="Packet.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="ChatPacket.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="NetUtil.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="C2S_Login.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="S2C_Login.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="S2C_Spawn.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="S2C_Destroy.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="C2S_Move.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="S2C_Move.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="SessionManager.cpp">
@@ -91,7 +43,6 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <None Include="packages.config" />
     <None Include="UserPacket.fbs" />
   </ItemGroup>
 </Project>

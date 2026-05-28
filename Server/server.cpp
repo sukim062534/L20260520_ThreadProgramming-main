@@ -13,7 +13,7 @@
 
 using namespace std;
 
-char Buffer[1024] = { 0, };
+char Buffer[4096] = { 0, };
 
 SessionManager MySessionManager;
 
@@ -34,51 +34,41 @@ void DisconnectSocket(SOCKET DisconnectedSocket, fd_set* Sockets)
 	FD_CLR(ClosedSocket, Sockets);
 	closesocket(ClosedSocket);
 
-	S2C_Destroy DestroyPacket;
+	flatbuffers::FlatBufferBuilder SendBuilder;
+
+	auto DestroyData = UserPacket::CreateS2C_Destroy(
+		SendBuilder,
+		(uint16_t)ClosedSocket
+	);
+
+	SendBuilder.Finish(DestroyData);
 
 	//dangling pointer
 	Session* FindSession = MySessionManager.GetSession(ClosedSocket);
-	DestroyPacket.ClientSocket = FindSession->ClientSocket;
-
 	MySessionManager.Delete(*FindSession);
 
-	Header DestroyHeader;
-	DestroyHeader.MakeHeader((int)DestroyPacket.ToString().length(), EPacketType::S2C_Destroy);
 
 	//모든 유저한테 이동 패킷 보내줌
 	for (auto Receiver : MySessionManager.SessionList)
 	{
-		//header
-		int SentBytes = SendAll(Receiver.ClientSocket, (char*)&DestroyHeader, HeaderSize);
-		if (SentBytes <= 0)
-		{
-			std::cout << "header send fail." << endl;
-		}
-
-		//Data
-		SentBytes = SendAll(Receiver.ClientSocket, DestroyPacket.ToString().c_str(), (int)(DestroyPacket.ToString().length()));
-		if (SentBytes <= 0)
-		{
-			std::cout << "Data send fail." << endl;
-		}
+		SendAll(Receiver.ClientSocket, SendBuilder);
 	}
-
 }
 
-void ProcessPacket(SOCKET ProcessSocket, const char* InBuffer, const Header& InHeader)
+void ProcessPacket(SOCKET ProcessSocket, const char* InBuffer)
 {
-	switch ((EPacketType)InHeader.PacketType)
+	auto UserPacketData = UserPacket::GetPacketData(InBuffer);
+
+	switch (UserPacketData->data_type())
 	{
-	case EPacketType::C2S_Login:
+	case UserPacket::PacketType_C2S_Login:
 	{
-		C2S_Login LoginPacket;
-		LoginPacket.Parse(InBuffer);
-		//접속 한 유저가 정확한 사람인지 확인
-		// AGameModeBase::PreLogin();
-		//접속 한 유저 정보 업데이트(Session)
+
+		auto LoginPacket = UserPacketData->data_as_C2S_Login();
+
 		Session InSession;
 		InSession.ClientSocket = ProcessSocket;
-		InSession.UserID = LoginPacket.UserID;
+		InSession.UserID = LoginPacket->user_id()->c_str();
 		InSession.X = rand() % 640;
 		InSession.Y = rand() % 480;
 		InSession.R = rand() % 255;
@@ -90,66 +80,65 @@ void ProcessPacket(SOCKET ProcessSocket, const char* InBuffer, const Header& InH
 		MySessionManager.Add(InSession);
 		//접속 한 아이한테 확인 패킷(S2C_Login)
 
-		S2C_Login Data;
-		Data.ClientSocketID = ProcessSocket;
-		Data.Message = "Welcome.";
+		flatbuffers::FlatBufferBuilder SendBuilder;
 
-		//header
-		Header DataHeader;
-		DataHeader.MakeHeader((int)(Data.ToString().length()), EPacketType::S2C_Login);
-		int SentBytes = SendAll(ProcessSocket, (char*)&DataHeader, HeaderSize);
-		if (SentBytes <= 0)
-		{
-			std::cout << "header send fail." << endl;
-		}
+		auto S2C_Login_Data = UserPacket::CreateS2C_Login(
+			SendBuilder,
+			(uint16_t)ProcessSocket,
+			SendBuilder.CreateString("Welcome.")
+		);
 
-		//Data
-		SentBytes = SendAll(ProcessSocket, Data.ToString().c_str(), (int)(Data.ToString().length()));
-		if (SentBytes <= 0)
-		{
-			std::cout << "Data send fail." << endl;
-		}
+		auto UserPacketData = UserPacket::CreatePacketData(
+			SendBuilder,
+			UserPacket::PacketType_S2C_Login,
+			S2C_Login_Data.Union()
+		);
+
+		SendBuilder.Finish(UserPacketData);
+		SendAll(ProcessSocket, SendBuilder);
 
 		//접속한 모든 유저한테 현재 모든 유저의 정보를 보내준다.
 		for (auto Item : MySessionManager.SessionList)
 		{
-			S2C_Spawn SpawnData;
-			SpawnData.ClientSocket = Item.ClientSocket;
-			SpawnData.Shape = Item.Shape;
-			SpawnData.X = Item.X;
-			SpawnData.Y = Item.Y;
-			SpawnData.R = Item.R;
-			SpawnData.G = Item.G;
-			SpawnData.B = Item.B;
+			flatbuffers::FlatBufferBuilder LoginSendBuilder;
 
-			Header SpawnHeader;
-			SpawnHeader.MakeHeader((int)SpawnData.ToString().length(), EPacketType::S2C_Spawn);
+			UserPacket::FVector2D Position(Item.X, Item.Y);
+			UserPacket::FColor Color(Item.R, Item.G, Item.B);
+			auto SpawnData = UserPacket::CreateS2C_Spawn(
+				LoginSendBuilder,
+				(uint16_t)Item.ClientSocket,
+				&Position,
+				&Color,
+				Item.Shape
+			);
+
+			auto UserSpawnPacketData = UserPacket::CreatePacketData(
+				LoginSendBuilder,
+				UserPacket::PacketType_S2C_Spawn,
+				SpawnData.Union()
+			);
+
+			LoginSendBuilder.Finish(UserSpawnPacketData);
+
 			for (auto Receiver : MySessionManager.SessionList)
 			{
-				//header
-				int SentBytes = SendAll(Receiver.ClientSocket, (char*)&SpawnHeader, HeaderSize);
+				int SentBytes = SendAll(Receiver.ClientSocket, LoginSendBuilder);
 				if (SentBytes <= 0)
 				{
 					std::cout << "header send fail." << endl;
-				}
-
-				//Data
-				SentBytes = SendAll(Receiver.ClientSocket, SpawnData.ToString().c_str(), (int)(SpawnData.ToString().length()));
-				if (SentBytes <= 0)
-				{
-					std::cout << "Data send fail." << endl;
 				}
 			}
 		}
 	}
 	break;
 
-	case EPacketType::C2S_Move:
+	case UserPacket::PacketType_C2S_Move:
 	{
-		C2S_Move MovePacket;
-		MovePacket.Parse(InBuffer);
-		Session* FindSession = MySessionManager.GetSession(MovePacket.ClientSocket);;
-		switch (MovePacket.Direction)
+		flatbuffers::FlatBufferBuilder SendBuilder;
+
+		auto MovePacket = UserPacketData->data_as_C2S_Move();
+		Session* FindSession = MySessionManager.GetSession((SOCKET)MovePacket->client_socket_id());
+		switch (MovePacket->direction())
 		{
 		case 'W':
 		case 'w':
@@ -169,29 +158,30 @@ void ProcessPacket(SOCKET ProcessSocket, const char* InBuffer, const Header& InH
 			break;
 		}
 
-		S2C_Move MoveData;
-		MoveData.ClientSocket = FindSession->ClientSocket;
-		MoveData.X = FindSession->X;
-		MoveData.Y = FindSession->Y;
+		UserPacket::FVector2D Position(FindSession->X, FindSession->Y);
+		auto S2C_MoveData = UserPacket::CreateS2C_Move(
+			SendBuilder,
+			(uint16_t)FindSession->ClientSocket,
+			&Position
+		);
 
-		Header MoveHeader;
-		MoveHeader.MakeHeader((int)MoveData.ToString().length(), EPacketType::S2C_Move);
+		std::cout << FindSession->ClientSocket << std::endl;
+
+		auto MoveData = UserPacket::CreatePacketData(
+			SendBuilder,
+			UserPacket::PacketType_S2C_Move,
+			S2C_MoveData.Union()
+		);
+
+		SendBuilder.Finish(MoveData);
 
 		//모든 유저한테 이동 패킷 보내줌
 		for (auto Receiver : MySessionManager.SessionList)
 		{
-			//header
-			int SentBytes = SendAll(Receiver.ClientSocket, (char*)&MoveHeader, HeaderSize);
+			int SentBytes = SendAll(Receiver.ClientSocket, SendBuilder);
 			if (SentBytes <= 0)
 			{
-				std::cout << "header send fail." << endl;
-			}
-
-			//Data
-			SentBytes = SendAll(Receiver.ClientSocket, MoveData.ToString().c_str(), (int)(MoveData.ToString().length()));
-			if (SentBytes <= 0)
-			{
-				std::cout << "Data send fail." << endl;
+				std::cout << "move send fail." << endl;
 			}
 		}
 	}
@@ -274,22 +264,7 @@ int main()
 				else
 				{
 					//Data Receive
-
-					//header
-					Header DataHeader;
-					int RecvBytes = RecvAll(ReadSockets.fd_array[i], (char*)&DataHeader, HeaderSize);
-					if (RecvBytes <= 0)
-					{
-						cout << "header recv fail " << endl;
-						DisconnectSocket(ReadSockets.fd_array[i], &ReadSockets);
-						continue;
-					}
-
-					DataHeader.NetworkToHost();
-
-					memset(Buffer, 0, sizeof(Buffer));
-					//data JSON
-					RecvBytes = RecvAll(ReadSockets.fd_array[i], Buffer, DataHeader.PacketSize);
+					int RecvBytes = RecvAll(ReadSockets.fd_array[i], Buffer);
 					if (RecvBytes <= 0)
 					{
 						cout << "data recv fail " << endl;
@@ -298,7 +273,7 @@ int main()
 					}
 					else
 					{
-						ProcessPacket(ReadSockets.fd_array[i], Buffer, DataHeader);
+						ProcessPacket(ReadSockets.fd_array[i], Buffer);
 					}
 				}
 			}

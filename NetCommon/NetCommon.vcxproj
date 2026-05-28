@@ -138,50 +138,25 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="C2S_Login.h" />
-    <ClInclude Include="C2S_Move.h" />
-    <ClInclude Include="ChatPacket.h" />
     <ClInclude Include="framework.h" />
     <ClInclude Include="NetUtil.h" />
-    <ClInclude Include="Packet.h" />
     <ClInclude Include="pch.h" />
-    <ClInclude Include="S2C_Destroy.h" />
-    <ClInclude Include="S2C_Login.h" />
-    <ClInclude Include="S2C_Move.h" />
-    <ClInclude Include="S2C_Spawn.h" />
     <ClInclude Include="SessionManager.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="C2S_Login.cpp" />
-    <ClCompile Include="C2S_Move.cpp" />
-    <ClCompile Include="ChatPacket.cpp" />
     <ClCompile Include="NetCommon.cpp" />
     <ClCompile Include="NetUtil.cpp" />
-    <ClCompile Include="Packet.cpp" />
     <ClCompile Include="pch.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="S2C_Destroy.cpp" />
-    <ClCompile Include="S2C_Login.cpp" />
-    <ClCompile Include="S2C_Move.cpp" />
-    <ClCompile Include="S2C_Spawn.cpp" />
     <ClCompile Include="SessionManager.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="packages.config" />
     <None Include="UserPacket.fbs" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
-  <ImportGroup Label="ExtensionTargets">
-    <Import Project="..\packages\tencent.rapidjson.1.1.1\build\tencent.rapidjson.targets" Condition="Exists('..\packages\tencent.rapidjson.1.1.1\build\tencent.rapidjson.targets')" />
-  </ImportGroup>
-  <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">
-    <PropertyGroup>
-      <ErrorText>This project references NuGet package(s) that are missing on this computer. Use NuGet Package Restore to download them.  For more information, see http://go.microsoft.com/fwlink/?LinkID=322105. The missing file is {0}.</ErrorText>
-    </PropertyGroup>
-    <Error Condition="!Exists('..\packages\tencent.rapidjson.1.1.1\build\tencent.rapidjson.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\tencent.rapidjson.1.1.1\build\tencent.rapidjson.targets'))" />
-  </Target>
+  <ImportGroup Label="ExtensionTargets" />
 </Project>
