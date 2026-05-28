@@ -16,3 +16,4 @@ public:
 	void Parse(std::string InString) override;
 	std::string ToString() override;
 };
+

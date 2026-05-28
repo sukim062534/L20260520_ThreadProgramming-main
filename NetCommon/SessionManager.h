@@ -35,6 +35,8 @@ public:
 	Session* GetSession(const Session& InSession);
 
 
-	//protected:
+//protected:
 	std::vector<Session> SessionList;
 };
+
+
