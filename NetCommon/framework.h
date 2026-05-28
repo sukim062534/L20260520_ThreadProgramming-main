@@ -9,3 +9,5 @@
 #include "UserPacket_generated.h"
 
 #include <Winsock2.h>
+
+#include "SessionManager.h"

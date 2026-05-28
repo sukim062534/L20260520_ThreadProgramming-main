@@ -10,3 +10,4 @@ extern int SendAll(SOCKET TargetSocket, const flatbuffers::FlatBufferBuilder& Bu
 extern int RecvAll(SOCKET SourceSocket, char* OutData);
 
 extern int SendAll(SOCKET TargetSocket, const char* InData, int Size);
+

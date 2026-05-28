@@ -138,6 +138,11 @@ int SDL_main(int Argc, char* Argv[])
 				lock_guard<std::mutex> KeyLock(KeyBufferLock);
 				KeyBuffer.push('D');
 			}
+			if (KeyState[SDL_SCANCODE_C])
+			{
+				lock_guard<std::mutex> KeyLock(KeyBufferLock);
+				KeyBuffer.push('C');
+			}
 		}
 
 		Render();
@@ -210,51 +215,65 @@ void ProcessPacket(SOCKET ProcessSocket, const char* InBuffer)
 
 	switch (UserPacketData->data_type())
 	{
-	case UserPacket::PacketType_S2C_Login:
-	{
-		MyClientID = UserPacketData->data_as_S2C_Login()->client_socket_id();
-	}
-	break;
-	case UserPacket::PacketType_S2C_Spawn:
-	{
-		Session InSession;
-		auto SpawnData = UserPacketData->data_as_S2C_Spawn();
-		InSession.ClientSocket = SpawnData->client_socket_id();
-		InSession.Shape = SpawnData->shape();
-		InSession.X = SpawnData->position()->x();
-		InSession.Y = SpawnData->position()->y();
-		InSession.R = SpawnData->color()->r();
-		InSession.G = SpawnData->color()->g();
-		InSession.B = SpawnData->color()->b();
-
+		case UserPacket::PacketType_S2C_Login:
 		{
-			lock_guard<std::mutex> lock(SessionLock);
-			MySessionManager.Add(InSession);
+			MyClientID = UserPacketData->data_as_S2C_Login()->client_socket_id();
 		}
-		//		Render();
-	}
-	break;
-	case UserPacket::PacketType_S2C_Move:
-	{
-		auto MoveData = UserPacketData->data_as_S2C_Move();
-
-		SOCKET SocketID = MoveData->client_socket_id();
-		Session* FindSession = MySessionManager.GetSession(SocketID);
-		FindSession->X = MoveData->position()->x();
-		FindSession->Y = MoveData->position()->y();
-	}
-	break;
-	case UserPacket::PacketType_S2C_Destroy:
-	{
-		auto DestroyPacket = UserPacketData->data_as_S2C_Destroy();
-
-		Session* FindSession = MySessionManager.GetSession((SOCKET)DestroyPacket->client_socket_id());
+		break;
+		case UserPacket::PacketType_S2C_Spawn:
 		{
-			lock_guard<std::mutex> lock(SessionLock);
-			MySessionManager.Delete(*FindSession);
+			Session InSession;
+			auto SpawnData = UserPacketData->data_as_S2C_Spawn();
+			InSession.ClientSocket = SpawnData->client_socket_id();
+			InSession.Shape = SpawnData->shape();
+			InSession.X = SpawnData->position()->x();
+			InSession.Y = SpawnData->position()->y();
+			InSession.R = SpawnData->color()->r();
+			InSession.G = SpawnData->color()->g();
+			InSession.B = SpawnData->color()->b();
+
+			{
+				lock_guard<std::mutex> lock(SessionLock);
+				MySessionManager.Add(InSession);
+			}
+			//		Render();
 		}
-	}
-	break;
+		break;
+		case UserPacket::PacketType_S2C_Move:
+		{
+			auto MoveData = UserPacketData->data_as_S2C_Move();
+
+			SOCKET SocketID = MoveData->client_socket_id();
+			Session* FindSession = MySessionManager.GetSession(SocketID);
+			FindSession->X = MoveData->position()->x();
+			FindSession->Y = MoveData->position()->y();
+		}
+		break;
+		case UserPacket::PacketType_S2C_Destroy:
+		{
+			auto DestroyPacket = UserPacketData->data_as_S2C_Destroy();
+
+			Session* FindSession = MySessionManager.GetSession((SOCKET)DestroyPacket->client_socket_id());
+			{
+				lock_guard<std::mutex> lock(SessionLock);
+				MySessionManager.Delete(*FindSession);
+			}
+		}
+		break;
+
+		case UserPacket::PacketType_S2C_ChangeColor:
+		{
+			auto ColorPacket = UserPacketData->data_as_S2C_ChangeColor();
+
+			Session* FindSession = MySessionManager.GetSession((SOCKET)ColorPacket->client_socket_id());
+			{
+				lock_guard<std::mutex> lock(SessionLock);
+				FindSession->R = ColorPacket->color()->r();
+				FindSession->G = ColorPacket->color()->g();
+				FindSession->B = ColorPacket->color()->b();
+			}
+		}
+		break;
 	}
 }
 
@@ -297,24 +316,48 @@ unsigned WINAPI SendThread(void* Argument)
 		}
 		flatbuffers::FlatBufferBuilder SendBuilder;
 
-		flatbuffers::Offset<UserPacket::C2S_Move> C2S_MoveData;
+		if (KeyBuffer.front() == 'C')
 		{
-			lock_guard<std::mutex> KeyLock(KeyBufferLock);
-			C2S_MoveData = UserPacket::CreateC2S_Move(
+			flatbuffers::Offset<UserPacket::C2S_ChangeColor> C2S_ColorData;
+			{
+				lock_guard<std::mutex> KeyLock(KeyBufferLock);
+				C2S_ColorData = UserPacket::CreateC2S_ChangeColor(
+					SendBuilder,
+					(uint16_t)MyClientID
+				);
+				KeyBuffer.pop();
+			}
+
+			auto UserPacketData = UserPacket::CreatePacketData(
 				SendBuilder,
-				(uint16_t)MyClientID,
-				KeyBuffer.front()
+				UserPacket::PacketType_C2S_ChangeColor,
+				C2S_ColorData.Union()
 			);
-			KeyBuffer.pop();
+
+			SendBuilder.Finish(UserPacketData);
+		}
+		else
+		{
+			flatbuffers::Offset<UserPacket::C2S_Move> C2S_MoveData;
+			{
+				lock_guard<std::mutex> KeyLock(KeyBufferLock);
+				C2S_MoveData = UserPacket::CreateC2S_Move(
+					SendBuilder,
+					(uint16_t)MyClientID,
+					KeyBuffer.front()
+				);
+				KeyBuffer.pop();
+			}
+
+			auto UserPacketData = UserPacket::CreatePacketData(
+				SendBuilder,
+				UserPacket::PacketType_C2S_Move,
+				C2S_MoveData.Union()
+			);
+
+			SendBuilder.Finish(UserPacketData);
 		}
 
-		auto UserPacketData = UserPacket::CreatePacketData(
-			SendBuilder,
-			UserPacket::PacketType_C2S_Move,
-			C2S_MoveData.Union()
-		);
-
-		SendBuilder.Finish(UserPacketData);
 
 		SendAll(ServerSocket, SendBuilder);
 	}

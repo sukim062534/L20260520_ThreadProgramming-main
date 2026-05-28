@@ -54,6 +54,15 @@ table S2C_Chat {
 	message : string;
 }
 
+table C2S_ChangeColor {
+	client_socket_id : uint16;
+}
+
+table S2C_ChangeColor {
+	client_socket_id : uint16;
+	color : FColor;
+}
+
 
 
 union PacketType {
@@ -64,7 +73,9 @@ union PacketType {
 	C2S_Move,
 	S2C_Move,
 	C2S_Chat,
-	S2C_Chat
+	S2C_Chat,
+	C2S_ChangeColor,
+	S2C_ChangeColor
 }
 
 table PacketData {
