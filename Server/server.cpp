@@ -1,11 +1,22 @@
-#define _WINSOCK_DEPRECATED_NO_WARNINGS
-
+ï»¿#define _WINSOCK_DEPRECATED_NO_WARNINGS
 #include "NetUtil.h"
 
 #include <winsock2.h>
 #include <iostream>
 
-#include "SessionManager.h"
+#include "jdbc/mysql_connection.h"
+#include "jdbc/cppconn/driver.h"
+#include "jdbc/cppconn/exception.h"
+#include "jdbc/cppconn/resultset.h"
+#include "jdbc/cppconn/statement.h"
+#include "jdbc/cppconn/prepared_statement.h"
+
+#ifndef _DEBUG
+#pragma comment(lib, "mysqlcppconn")
+#else
+#pragma comment(lib, "mysqlcppconn.lib")
+#endif //_DEBUG
+
 
 
 #pragma comment(lib, "ws2_32")
@@ -13,9 +24,90 @@
 
 using namespace std;
 
-char Buffer[1024] = { 0, };
+char Buffer[65536] = { 0, };
 
 SessionManager MySessionManager;
+
+sql::Driver* MyDriver; //workbench
+sql::Connection* MyConnection; //ì ‘ì† ì •ë³´
+//sql::Statement* MyStatement; //ì¿¼ë¦¬ ì°½
+sql::ResultSet* MyResultSet; //ê²°ê³¼ ì°½
+sql::PreparedStatement* MyPreparedStatement; //ì¿¼ë¦¬ë¥¼ ë§Œë“¤ë•Œ injection ë°©ì–´í•¨.
+
+void ConnectDB()
+{
+	try
+	{
+		MyDriver = get_driver_instance();
+		MyConnection = MyDriver->connect("tcp://127.0.0.1", "eunseo", "1234");
+
+		MyConnection->setSchema("membership");
+	}
+	catch (sql::SQLException Exception)
+	{
+		std::cout << Exception.what() << std::endl;
+		std::cout << Exception.getSQLState() << std::endl;
+	}
+}
+
+
+bool Login(std::string UserID, std::string Password)
+{
+	//Stored Procesdureë¥¼ ì‚¬ìš©í•¨.
+	sql::SQLString Query = "select * from user where `user_id` = ? and `user_pw` = sha2( ?, 512) and is_delete = 'N';";
+
+	MyPreparedStatement = MyConnection->prepareStatement(Query);
+	MyPreparedStatement->setString(1, UserID);
+	MyPreparedStatement->setString(2, Password);
+	MyResultSet = MyPreparedStatement->executeQuery();
+
+	std::cout << Query << std::endl;
+
+	if (MyResultSet->rowsCount() == 0)
+	{
+		//Redisì™€ ê°™ì€ ìºì‹œ ì„œë²„ì— ì €ì¥
+		//hash í‚¤ê°’ì„ ì „ì†¡í•¨.
+		std::cout << "ì•„ì´ë”” ë¹„ë²ˆì´ í‹€ë¦½ë‹ˆë‹¤.";
+
+		return false;
+	}
+	else
+	{
+		return true;
+	}
+}
+
+bool Signup(std::string UserID, std::string Password, std::string Name)
+{
+	try
+	{
+		//SQL X
+		sql::SQLString Query = "insert into user (`user_id`, `user_pw`, `name`) values ( ?,  sha2(?, 512), ?);";
+
+		MyPreparedStatement = MyConnection->prepareStatement(Query);
+		MyPreparedStatement->setString(1, UserID);
+		MyPreparedStatement->setString(2, Password);
+		MyPreparedStatement->setString(3, Name);
+		MyResultSet = MyPreparedStatement->executeQuery();
+
+		std::cout << Query << std::endl;
+	}
+	catch (sql::SQLException E)
+	{
+		std::cout << "ì´ë¯¸ ì‚¬ìš©í•˜ëŠ” ì•„ì´ë”” ì…ë‹ˆë‹¤.";
+
+		return false;
+	}
+
+	return true;
+}
+
+bool Logout(std::string UserID, std::string Password)
+{
+	//ì„œë²„ í•œëŒ€ë¡œ ì‘ì—…, ì„œë¹„ìŠ¤?
+	return true;
+}
+
 
 void DisconnectSocket(SOCKET DisconnectedSocket, fd_set* Sockets)
 {
@@ -34,122 +126,154 @@ void DisconnectSocket(SOCKET DisconnectedSocket, fd_set* Sockets)
 	FD_CLR(ClosedSocket, Sockets);
 	closesocket(ClosedSocket);
 
-	S2C_Destroy DestroyPacket;
+	flatbuffers::FlatBufferBuilder SendBuilder;
+
+	auto DestroyData = UserPacket::CreateS2C_Destroy(
+		SendBuilder,
+		(uint16_t)ClosedSocket
+	);
+
+	auto UserPacketData = UserPacket::CreatePacketData(
+		SendBuilder,
+		UserPacket::PacketType_S2C_Destroy,
+		DestroyData.Union()
+	);
+
+	SendBuilder.Finish(UserPacketData);
 
 	//dangling pointer
 	Session* FindSession = MySessionManager.GetSession(ClosedSocket);
-	DestroyPacket.ClientSocket = FindSession->ClientSocket;
 
-	MySessionManager.Delete(*FindSession);
-
-	Header DestroyHeader;
-	DestroyHeader.MakeHeader((int)DestroyPacket.ToString().length(), EPacketType::S2C_Destroy);
-
-	//¸ğµç À¯ÀúÇÑÅ× ÀÌµ¿ ÆĞÅ¶ º¸³»ÁÜ
-	for (auto Receiver : MySessionManager.SessionList)
+	if (FindSession)
 	{
-		//header
-		int SentBytes = SendAll(Receiver.ClientSocket, (char*)&DestroyHeader, HeaderSize);
-		if (SentBytes <= 0)
-		{
-			std::cout << "header send fail." << endl;
-		}
-
-		//Data
-		SentBytes = SendAll(Receiver.ClientSocket, DestroyPacket.ToString().c_str(), (int)(DestroyPacket.ToString().length()));
-		if (SentBytes <= 0)
-		{
-			std::cout << "Data send fail." << endl;
-		}
+		MySessionManager.Delete(*FindSession);
 	}
 
+
+	//ëª¨ë“  ìœ ì €í•œí…Œ ì´ë™ íŒ¨í‚· ë³´ë‚´ì¤Œ
+	for (auto Receiver : MySessionManager.SessionList)
+	{
+		SendAll(Receiver.ClientSocket, SendBuilder);
+	}
 }
 
-void ProcessPacket(SOCKET ProcessSocket, const char* InBuffer, const Header& InHeader)
+
+
+void ProcessPacket(SOCKET ProcessSocket, const char* InBuffer)
 {
-	switch ((EPacketType)InHeader.PacketType)
+	auto UserPacketData = UserPacket::GetPacketData(InBuffer);
+
+	switch (UserPacketData->data_type())
 	{
-	case EPacketType::C2S_Login:
+	case UserPacket::PacketType_C2S_Login:
 	{
-		C2S_Login LoginPacket;
-		LoginPacket.Parse(InBuffer);
-		//Á¢¼Ó ÇÑ À¯Àú°¡ Á¤È®ÇÑ »ç¶÷ÀÎÁö È®ÀÎ
-		// AGameModeBase::PreLogin();
-		//Á¢¼Ó ÇÑ À¯Àú Á¤º¸ ¾÷µ¥ÀÌÆ®(Session)
-		Session InSession;
-		InSession.ClientSocket = ProcessSocket;
-		InSession.UserID = LoginPacket.UserID;
-		InSession.X = rand() % 640;
-		InSession.Y = rand() % 480;
-		InSession.R = rand() % 255;
-		InSession.G = rand() % 255;
-		InSession.B = rand() % 255;
 
-		InSession.Shape = 65 + (rand() % 26);
+		auto LoginPacket = UserPacketData->data_as_C2S_Login();
 
-		MySessionManager.Add(InSession);
-		//Á¢¼Ó ÇÑ ¾ÆÀÌÇÑÅ× È®ÀÎ ÆĞÅ¶(S2C_Login)
+		bool Result = Login(LoginPacket->user_id()->c_str(),
+			LoginPacket->user_pw()->c_str());
 
-		S2C_Login Data;
-		Data.ClientSocketID = ProcessSocket;
-		Data.Message = "Welcome.";
+		flatbuffers::FlatBufferBuilder SendBuilder;
 
-		//header
-		Header DataHeader;
-		DataHeader.MakeHeader((int)(Data.ToString().length()), EPacketType::S2C_Login);
-		int SentBytes = SendAll(ProcessSocket, (char*)&DataHeader, HeaderSize);
-		if (SentBytes <= 0)
+		if (Result)
 		{
-			std::cout << "header send fail." << endl;
+			std::cout << "ë¡œê·¸ì¸ì— ì„±ê³µ í–ˆìŠµë‹ˆë‹¤" << endl;
+
+			Session InSession;
+			InSession.ClientSocket = ProcessSocket;
+			InSession.UserID = LoginPacket->user_id()->c_str();
+			InSession.X = rand() % 640;
+			InSession.Y = rand() % 480;
+			InSession.R = rand() % 255;
+			InSession.G = rand() % 255;
+			InSession.B = rand() % 255;
+
+			InSession.Shape = 65 + (rand() % 26);
+
+			MySessionManager.Add(InSession);
+			//ì ‘ì† í•œ ì•„ì´í•œí…Œ í™•ì¸ íŒ¨í‚·(S2C_Login)
+			auto S2C_Login_Data = UserPacket::CreateS2C_Login(
+				SendBuilder,
+				(uint16_t)ProcessSocket,
+				SendBuilder.CreateString(u8"í™˜ì˜í•©ë‹ˆë‹¤."),
+				SendBuilder.CreateString(u8"qw3oddpui2"),
+				true
+			);
+
+			auto UserPacketData = UserPacket::CreatePacketData(
+				SendBuilder,
+				UserPacket::PacketType_S2C_Login,
+				S2C_Login_Data.Union()
+			);
+
+			SendBuilder.Finish(UserPacketData);
+		}
+		else
+		{
+			std::cout << "ë¡œê·¸ì¸ì— ì‹¤íŒ¨ í–ˆìŠµë‹ˆë‹¤" << endl;
+
+			auto S2C_Login_Data = UserPacket::CreateS2C_Login(
+				SendBuilder,
+				(uint16_t)ProcessSocket,
+				SendBuilder.CreateString("Failed."),
+				SendBuilder.CreateString(""),
+				false
+			);
+
+			auto UserPacketData = UserPacket::CreatePacketData(
+				SendBuilder,
+				UserPacket::PacketType_S2C_Login,
+				S2C_Login_Data.Union()
+			);
+
+			SendBuilder.Finish(UserPacketData);
 		}
 
-		//Data
-		SentBytes = SendAll(ProcessSocket, Data.ToString().c_str(), (int)(Data.ToString().length()));
-		if (SentBytes <= 0)
-		{
-			std::cout << "Data send fail." << endl;
-		}
 
-		//Á¢¼ÓÇÑ ¸ğµç À¯ÀúÇÑÅ× ÇöÀç ¸ğµç À¯ÀúÀÇ Á¤º¸¸¦ º¸³»ÁØ´Ù.
+		SendAll(ProcessSocket, SendBuilder);
+
+		//ì ‘ì†í•œ ëª¨ë“  ìœ ì €í•œí…Œ í˜„ì¬ ëª¨ë“  ìœ ì €ì˜ ì •ë³´ë¥¼ ë³´ë‚´ì¤€ë‹¤.
 		for (auto Item : MySessionManager.SessionList)
 		{
-			S2C_Spawn SpawnData;
-			SpawnData.ClientSocket = Item.ClientSocket;
-			SpawnData.Shape = Item.Shape;
-			SpawnData.X = Item.X;
-			SpawnData.Y = Item.Y;
-			SpawnData.R = Item.R;
-			SpawnData.G = Item.G;
-			SpawnData.B = Item.B;
+			flatbuffers::FlatBufferBuilder LoginSendBuilder;
 
-			Header SpawnHeader;
-			SpawnHeader.MakeHeader((int)SpawnData.ToString().length(), EPacketType::S2C_Spawn);
+			UserPacket::FVector2D Position(Item.X, Item.Y);
+			UserPacket::FColor Color(Item.R, Item.G, Item.B);
+			auto SpawnData = UserPacket::CreateS2C_Spawn(
+				LoginSendBuilder,
+				(uint16_t)Item.ClientSocket,
+				&Position,
+				&Color,
+				Item.Shape
+			);
+
+			auto UserSpawnPacketData = UserPacket::CreatePacketData(
+				LoginSendBuilder,
+				UserPacket::PacketType_S2C_Spawn,
+				SpawnData.Union()
+			);
+
+			LoginSendBuilder.Finish(UserSpawnPacketData);
+
 			for (auto Receiver : MySessionManager.SessionList)
 			{
-				//header
-				int SentBytes = SendAll(Receiver.ClientSocket, (char*)&SpawnHeader, HeaderSize);
+				int SentBytes = SendAll(Receiver.ClientSocket, LoginSendBuilder);
 				if (SentBytes <= 0)
 				{
 					std::cout << "header send fail." << endl;
-				}
-
-				//Data
-				SentBytes = SendAll(Receiver.ClientSocket, SpawnData.ToString().c_str(), (int)(SpawnData.ToString().length()));
-				if (SentBytes <= 0)
-				{
-					std::cout << "Data send fail." << endl;
 				}
 			}
 		}
 	}
 	break;
 
-	case EPacketType::C2S_Move:
+	case UserPacket::PacketType_C2S_Move:
 	{
-		C2S_Move MovePacket;
-		MovePacket.Parse(InBuffer);
-		Session* FindSession = MySessionManager.GetSession(MovePacket.ClientSocket);;
-		switch (MovePacket.Direction)
+		flatbuffers::FlatBufferBuilder SendBuilder;
+
+		auto MovePacket = UserPacketData->data_as_C2S_Move();
+		Session* FindSession = MySessionManager.GetSession((SOCKET)MovePacket->client_socket_id());
+		switch (MovePacket->direction())
 		{
 		case 'W':
 		case 'w':
@@ -169,31 +293,100 @@ void ProcessPacket(SOCKET ProcessSocket, const char* InBuffer, const Header& InH
 			break;
 		}
 
-		S2C_Move MoveData;
-		MoveData.ClientSocket = FindSession->ClientSocket;
-		MoveData.X = FindSession->X;
-		MoveData.Y = FindSession->Y;
+		UserPacket::FVector2D Position(FindSession->X, FindSession->Y);
+		auto S2C_MoveData = UserPacket::CreateS2C_Move(
+			SendBuilder,
+			(uint16_t)FindSession->ClientSocket,
+			&Position
+		);
 
-		Header MoveHeader;
-		MoveHeader.MakeHeader((int)MoveData.ToString().length(), EPacketType::S2C_Move);
+		//std::cout << FindSession->ClientSocket << std::endl;
 
-		//¸ğµç À¯ÀúÇÑÅ× ÀÌµ¿ ÆĞÅ¶ º¸³»ÁÜ
+		auto MoveData = UserPacket::CreatePacketData(
+			SendBuilder,
+			UserPacket::PacketType_S2C_Move,
+			S2C_MoveData.Union()
+		);
+
+		SendBuilder.Finish(MoveData);
+
+		//ëª¨ë“  ìœ ì €í•œí…Œ ì´ë™ íŒ¨í‚· ë³´ë‚´ì¤Œ
 		for (auto Receiver : MySessionManager.SessionList)
 		{
-			//header
-			int SentBytes = SendAll(Receiver.ClientSocket, (char*)&MoveHeader, HeaderSize);
+			int SentBytes = SendAll(Receiver.ClientSocket, SendBuilder);
 			if (SentBytes <= 0)
 			{
-				std::cout << "header send fail." << endl;
-			}
-
-			//Data
-			SentBytes = SendAll(Receiver.ClientSocket, MoveData.ToString().c_str(), (int)(MoveData.ToString().length()));
-			if (SentBytes <= 0)
-			{
-				std::cout << "Data send fail." << endl;
+				std::cout << "move send fail." << endl;
 			}
 		}
+	}
+	break;
+
+	case UserPacket::PacketType_C2S_ChangeColor:
+	{
+		flatbuffers::FlatBufferBuilder SendBuilder;
+
+		auto ChangeColorPacket = UserPacketData->data_as_C2S_ChangeColor();
+
+		Session* ChangeSession = MySessionManager.GetSession((SOCKET)ChangeColorPacket->client_socket_id());
+
+		ChangeSession->R = rand() % 255;
+		ChangeSession->G = rand() % 255;
+		ChangeSession->B = rand() % 255;
+
+		UserPacket::FColor Color(ChangeSession->R, ChangeSession->G, ChangeSession->B);
+
+		auto S2C_ColorData = UserPacket::CreateS2C_ChangeColor(
+			SendBuilder,
+			ChangeColorPacket->client_socket_id(),
+			&Color
+		);
+
+		auto UserPacketData = UserPacket::CreatePacketData(
+			SendBuilder,
+			UserPacket::PacketType_S2C_ChangeColor,
+			S2C_ColorData.Union()
+		);
+
+		SendBuilder.Finish(UserPacketData);
+
+		//ëª¨ë“  ìœ ì €í•œí…Œ ì´ë™ íŒ¨í‚· ë³´ë‚´ì¤Œ
+		for (auto Receiver : MySessionManager.SessionList)
+		{
+			int SentBytes = SendAll(Receiver.ClientSocket, SendBuilder);
+			if (SentBytes <= 0)
+			{
+				std::cout << "change color send fail." << endl;
+			}
+		}
+	}
+	break;
+
+	case UserPacket::PacketType_C2S_Signup:
+	{
+		auto SignupPacket = UserPacketData->data_as_C2S_Signup();
+
+		bool Result = Signup(SignupPacket->user_id()->c_str(),
+			SignupPacket->user_pw()->c_str(),
+			SignupPacket->name()->c_str()
+		);
+
+		flatbuffers::FlatBufferBuilder SendBuilder;
+
+		auto S2C_ColorData = UserPacket::CreateS2C_Signup(
+			SendBuilder,
+			SendBuilder.CreateString(Result ? "ê°€ì… ì„±ê³µí–ˆìŠµë‹ˆë‹¤." : "ê°€ì…ì— ì‹¤íŒ¨ í–ˆìŠµë‹ˆë‹¤."),
+			Result
+		);
+
+		auto UserPacketData = UserPacket::CreatePacketData(
+			SendBuilder,
+			UserPacket::PacketType_S2C_Signup,
+			S2C_ColorData.Union()
+		);
+
+		SendBuilder.Finish(UserPacketData);
+		SendAll(ProcessSocket, SendBuilder);
 	}
 	break;
 	}
@@ -220,12 +413,12 @@ int main()
 	ListenSockAddr.sin_addr.s_addr = INADDR_ANY;
 	ListenSockAddr.sin_port = htons(35000);
 
-	//already use port ÀÌ¹Ì Æ÷Æ® »ç¿ëÁß
+	//already use port ì´ë¯¸ í¬íŠ¸ ì‚¬ìš©ì¤‘
 	::bind(ListenSocket, (SOCKADDR*)&ListenSockAddr, sizeof(ListenSockAddr));
 
 	listen(ListenSocket, SOMAXCONN);
 
-
+	ConnectDB();
 
 	//blocking, synchronous(TimeOut)
 	TIMEVAL TimeOut;
@@ -242,17 +435,17 @@ int main()
 	{
 		CopyReadSockets = ReadSockets;
 
-		//0.5ÃÊ¾¿ blocking
+		//0.5ì´ˆì”© blocking
 		int ChangeCount = select(0, &CopyReadSockets, 0, 0, &TimeOut);
 
 		if (ChangeCount <= 0)
 		{
 			//Server Work
-			//0.5ÃÊÇÑ¹ø ¼­¹ö ÀÛ¾÷À» ÇÏ´Â°Å
+			//0.5ì´ˆí•œë²ˆ ì„œë²„ ì‘ì—…ì„ í•˜ëŠ”ê±°
 			continue;
 		}
 
-		//¸ó°¡ ÀÚ·á ÀÖ´Ù.
+		//ëª¬ê°€ ìë£Œ ìˆë‹¤.
 		for (int i = 0; i < (int)ReadSockets.fd_count; ++i)
 		{
 			if (FD_ISSET(ReadSockets.fd_array[i], &CopyReadSockets))
@@ -274,22 +467,7 @@ int main()
 				else
 				{
 					//Data Receive
-
-					//header
-					Header DataHeader;
-					int RecvBytes = RecvAll(ReadSockets.fd_array[i], (char*)&DataHeader, HeaderSize);
-					if (RecvBytes <= 0)
-					{
-						cout << "header recv fail " << endl;
-						DisconnectSocket(ReadSockets.fd_array[i], &ReadSockets);
-						continue;
-					}
-
-					DataHeader.NetworkToHost();
-
-					memset(Buffer, 0, sizeof(Buffer));
-					//data JSON
-					RecvBytes = RecvAll(ReadSockets.fd_array[i], Buffer, DataHeader.PacketSize);
+					int RecvBytes = RecvAll(ReadSockets.fd_array[i], Buffer);
 					if (RecvBytes <= 0)
 					{
 						cout << "data recv fail " << endl;
@@ -298,7 +476,7 @@ int main()
 					}
 					else
 					{
-						ProcessPacket(ReadSockets.fd_array[i], Buffer, DataHeader);
+						ProcessPacket(ReadSockets.fd_array[i], Buffer);
 					}
 				}
 			}

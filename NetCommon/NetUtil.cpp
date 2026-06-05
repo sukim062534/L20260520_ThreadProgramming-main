@@ -2,7 +2,37 @@
 
 #include "NetUtil.h"
 
-int SendAll(SOCKET ReceiverSocket, const char* Data, int Size)
+#include <iostream>
+
+int SendAll(SOCKET TargetSocket, const flatbuffers::FlatBufferBuilder& Builder)
+{
+	int SentBytes = 0;
+
+	unsigned short PacketSize = Builder.GetSize();
+	PacketSize = htons(PacketSize);
+
+	//::send(TargetSocket, (char*)PacketSize, 2, 0);
+	//Header
+	SentBytes = SendAll(TargetSocket, (char*)&PacketSize, sizeof(PacketSize));
+	//std::cout << "send header : " << SentBytes << std::endl;
+	if (SentBytes <= 0)
+	{
+		std::cout << "header send Error" << std::endl;
+	}
+
+	//Data
+	SentBytes = SendAll(TargetSocket, (char*)Builder.GetBufferPointer(), Builder.GetSize());
+	//std::cout << "send data : " << SentBytes << std::endl;
+	if (SentBytes <= 0)
+	{
+		std::cout << "data send Error" << std::endl;
+	}
+
+	return SentBytes;
+}
+
+
+int SendAll(SOCKET TargetSocket, const char* Data, int Size)
 {
 	int TotalSendDataSize = 0;
 	int WantSendDataSize = Size;
@@ -10,7 +40,7 @@ int SendAll(SOCKET ReceiverSocket, const char* Data, int Size)
 	int Count = 0;
 	do
 	{
-		SentBytes = send(ReceiverSocket, Data + TotalSendDataSize, WantSendDataSize - TotalSendDataSize, 0);
+		SentBytes = ::send(TargetSocket, Data + TotalSendDataSize, WantSendDataSize - TotalSendDataSize, 0);
 		TotalSendDataSize += SentBytes;
 		if (SentBytes <= 0)
 		{
@@ -21,9 +51,28 @@ int SendAll(SOCKET ReceiverSocket, const char* Data, int Size)
 	return WantSendDataSize;
 }
 
-int RecvAll(SOCKET ReceiverSocket, char* OutData, int Size)
+int RecvAll(SOCKET SourceSocket, char* OutData)
 {
-	int RecvBytes = recv(ReceiverSocket, OutData, Size, MSG_WAITALL);
-	return RecvBytes;
-}
+	unsigned short PacketSize = 0;
+	int RecvLength = 0;
+	
+	//header, size
+	RecvLength = ::recv(SourceSocket, (char*)&PacketSize, sizeof(PacketSize), MSG_WAITALL);
+	//std::cout << "recv header : " << RecvLength << std::endl;
+	if (RecvLength <= 0)
+	{
+		return RecvLength;
+	}
 
+	PacketSize = ntohs(PacketSize);
+
+	RecvLength = ::recv(SourceSocket, OutData, PacketSize, MSG_WAITALL);
+	//std::cout << "recv data : " << RecvLength << std::endl;
+	if (RecvLength <= 0)
+	{
+		return RecvLength;
+	}
+
+	return RecvLength;
+
+}

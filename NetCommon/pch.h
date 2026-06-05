@@ -7,16 +7,9 @@
 #ifndef PCH_H
 #define PCH_H
 
-#define RAPIDJSON_HAS_STDSTRING 1
 
 // add headers that you want to pre-compile here
 #include "framework.h"
-
-#include "rapidjson/document.h"
-#include "rapidjson/writer.h"
-#include "rapidjson/stringbuffer.h"
-
-#include <Winsock2.h>
 
 
 #endif //PCH_H
